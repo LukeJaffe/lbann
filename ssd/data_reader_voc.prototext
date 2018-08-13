@@ -1,0 +1,11 @@
+data_reader {
+  reader {
+    name: "voc"
+    role: "train"
+    shuffle: true
+    data_filename: "test_data.csv"
+    validation_percent: 0.0
+    absolute_sample_count: 0
+    percent_of_data_to_use: 1.0
+  }
+}

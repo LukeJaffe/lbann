@@ -4,7 +4,7 @@ cmake_policy(SET CMP0015 NEW)
 
 set(COMPILER "gnu")
 #set(CLUSTER "surface") # only usable with non-custom built MPI that is detected by SetupMPI.cmake below
-set(CLUSTER "catalyst")
+set(CLUSTER "pascal")
 set(LBANN_DIR ../..)
 set(LBANN_BUILD_DIR ${LBANN_DIR}/build/${COMPILER}.Release.${CLUSTER}.llnl.gov/install)
 include(${LBANN_DIR}/cmake/modules/SetupMPI.cmake)

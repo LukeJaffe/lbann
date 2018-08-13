@@ -112,6 +112,9 @@ void init_data_readers(lbann::lbann_comm *comm, const lbann_data::LbannPB& p, st
 #endif // LBANN_HAS_CONDUIT
     } else if (name == "nci") {
       reader = new data_reader_nci(shuffle);
+    } else if (name == "voc") {
+      std::cout << "Creating VOC data reader!!!" << std::endl;
+      reader = new data_reader_voc(shuffle);
     } else if (name == "csv") {
       auto* reader_csv = new csv_reader(shuffle);
       reader_csv->set_label_col(readme.label_col());
@@ -317,6 +320,9 @@ void init_data_readers(lbann::lbann_comm *comm, const lbann_data::LbannPB& p, st
       } else if (name == "nci") {
         reader_validation = new data_reader_nci(shuffle);
         (*(data_reader_nci *)reader_validation) = (*(data_reader_nci *)reader);
+      } else if (name == "voc") {
+        reader_validation = new data_reader_voc(shuffle);
+        (*(data_reader_voc *)reader_validation) = (*(data_reader_voc *)reader);
       } else if (name == "csv") {
         reader_validation = new csv_reader(shuffle);
         (*(csv_reader *)reader_validation) = (*(csv_reader *)reader);
