@@ -38,6 +38,7 @@ const int NUM_COORD = 4;
 const float IMAGE_SIZE = 300;
 const int NUM_SCALES = 6;
 const int NUM_CLASSES = 21;
+const int KEEP_DIFFICULT = 0;
 const std::vector<int> FEATURE_MAPS = {38, 19, 10, 5, 3, 1};
 const std::vector<int> MIN_SIZES = {30, 60, 111, 162, 213, 264};
 const std::vector<int> MAX_SIZES = {60, 111, 162, 213, 264, 315};
@@ -571,8 +572,11 @@ void data_reader_voc::load() {
             img_boxes.clear();
             img_labels.clear();
         }
-        img_boxes.push_back(box);
-        img_labels.push_back(cls_id);
+        if (!((KEEP_DIFFICULT == 0) && (difficult == 1)))
+        {
+            img_boxes.push_back(box);
+            img_labels.push_back(cls_id);
+        }
       /*
       // Extract the label.
       if (!m_disable_labels) {
@@ -695,6 +699,8 @@ void data_reader_voc::load() {
       full_cls_vec[i] = ssd_truth.cls_vec;
       full_off_vec[i] = ssd_truth.off_vec;
   }
+
+  std::cout << "==> Testing..." << std::endl;
 }
 
 }  // namespace lbann
