@@ -1,3 +1,3 @@
 #!/bin/bash
 
-./build/voc_load data/train.csv
+./build/voc_load data/train_full.csv

@@ -37,11 +37,15 @@ const int NUM_DEFAULT = 8732;
 const int NUM_COORD = 4;
 const float IMAGE_SIZE = 300;
 const int NUM_SCALES = 6;
+const int NUM_CLASSES = 21;
 const std::vector<int> FEATURE_MAPS = {38, 19, 10, 5, 3, 1};
 const std::vector<int> MIN_SIZES = {30, 60, 111, 162, 213, 264};
 const std::vector<int> MAX_SIZES = {60, 111, 162, 213, 264, 315};
 const std::vector<float> STEPS = {8, 16, 32, 64, 100, 300};
 const std::vector<std::vector<int>> ASPECT_RATIOS = {{2}, {2, 3}, {2, 3}, {2, 3}, {2}, {2}};
+
+// Matching parameters
+const float IOU_THRESH = 0.5;
 
 #if 1
 // Clamp all values in matrix to [0, 1]
@@ -94,7 +98,7 @@ inline bool _compare(std::vector<std::vector<float>> a, std::vector<std::vector<
 // Convert default boxes from "center" form to "bound" form
 inline std::vector<std::vector<float>> _convert_bound(std::vector<std::vector<float>> center_boxes)
 {
-    std::cout << "center boxes size: " << center_boxes.size() << std::endl;
+    //std::cout << "center boxes size: " << center_boxes.size() << std::endl;
     // Initialize default box matrix
     std::vector<std::vector<float>> bound_boxes(center_boxes.size());
     for (uint i = 0; i < center_boxes.size(); i++)
@@ -121,7 +125,7 @@ inline std::vector<std::vector<float>> _convert_bound(std::vector<std::vector<fl
 // Convert default boxes from "bound" form to "center" form
 inline std::vector<std::vector<float>> _convert_center(std::vector<std::vector<float>> bound_boxes)
 {
-    std::cout << "bound boxes size: " << bound_boxes.size() << std::endl;
+    //std::cout << "bound boxes size: " << bound_boxes.size() << std::endl;
     // Initialize default box matrix
     std::vector<std::vector<float>> center_boxes(bound_boxes.size());
     for (uint i = 0; i < bound_boxes.size(); i++)
@@ -205,6 +209,170 @@ inline std::vector<std::vector<float>> _get_default_boxes(
     return _clamp(center_boxes);
 }
 
+
+// Take 1 boxes in (xmin, ymin, xmax, ymax) format, compute area
+inline float _get_area(std::vector<float> a)
+{
+    float w, h, area;
+    w = a[2] - a[0];
+    h = a[3] - a[1];
+    area = w*h;
+    return area;
+}
+
+// Take 2 boxes in (xmin, ymin, xmax, ymax) format, compute intersection
+inline float _get_inter(std::vector<float> a, std::vector<float> b)
+{
+    float lmx, gmx, lmy, gmy, xs, ys, i;
+    lmx = std::min(a[2], b[2]);
+    gmx = std::max(a[0], b[0]);
+    lmy = std::min(a[3], b[3]);
+    gmy = std::max(a[1], b[1]);
+    xs = std::max(lmx - gmx, 0.0f);
+    ys = std::max(lmy - gmy, 0.0f);
+    i = xs * ys;
+    return i;
+}
+
+// Take 2 boxes in (xmin, ymin, xmax, ymax) format, compute union
+inline float _get_union(std::vector<float> a, std::vector<float> b, float i)
+{
+    float aa, ab, u;
+    aa = _get_area(a);
+    ab = _get_area(b);
+    u = aa + ab - i;
+    return u;
+}
+
+// Take 2 boxes in (xmin, ymin, xmax, ymax) format, compute iou
+inline float _get_iou(std::vector<float> a, std::vector<float> b)
+{
+    float i, u, iou;
+    i = _get_inter(a, b);
+    u = _get_union(a, b, i);
+    iou = i / u;
+    return iou; 
+}
+
+// Take truth box, default box in (cx, cy, w, h) format, compute encoding for SSD
+inline std::vector<float> _encode_offset(std::vector<float> truth_box, std::vector<float> default_box)
+{
+    float g_cx, g_cy, g_w, g_h;
+    g_cx = (truth_box[0] - default_box[0]) / default_box[2];
+    g_cy = (truth_box[1] - default_box[1]) / default_box[3];
+    g_w = std::log(truth_box[2] / default_box[2]);
+    g_h = std::log(truth_box[3] / default_box[3]);
+    std::vector<float> offset{g_cx, g_cy, g_w, g_h};
+    return offset;
+}
+
+template <typename T>
+std::vector<size_t> sort_indices(const std::vector<T> &v) 
+{
+    // initialize original index locations
+    std::vector<size_t> idx(v.size());
+    iota(idx.begin(), idx.end(), 0);
+
+    // sort indexes based on comparing values in v
+    sort(idx.begin(), idx.end(),
+       [&v](size_t i1, size_t i2) {return v[i1] < v[i2];});
+
+    return idx;
+}
+
+typedef struct ssd_truth
+{
+    std::vector<std::vector<uint8_t>> cls_vec;
+    std::vector<std::vector<float>> off_vec;
+} ssd_truth_t;
+
+inline ssd_truth_t _match_image(
+        std::vector<std::vector<float>> default_boxes, 
+        std::vector<std::vector<float>> default_centers, 
+        std::vector<std::vector<float>> truth_boxes,
+        std::vector<std::vector<float>> truth_centers,
+        std::vector<uint> truth_labels,
+        float iou_thresh,
+        uint num_classes)
+{
+    float iou;
+    uint i, j, k = 0;
+    // Declare, initialize variables
+    std::vector<std::vector<size_t>> ind_mat(truth_boxes.size());
+    for (i = 0; i < truth_boxes.size(); i++)
+        ind_mat[i].resize(default_boxes.size());
+    std::vector<float> iou_vec(truth_boxes.size()*default_boxes.size());
+    // Get IOU for each truth/default box pair
+    for (i = 0; i < truth_boxes.size(); i++)
+    {
+        for (j = 0; j < default_boxes.size(); j++)
+        {
+            iou = _get_iou(truth_boxes[i], default_boxes[j]);
+            iou_vec[k++] = iou;
+        }
+    }
+    // Sort IOU scores
+    std::vector<size_t> idx_vec = sort_indices(iou_vec);
+    // Setup vectors to keep track of matching
+    std::vector<uint8_t> default_mark_vec(default_boxes.size());
+    std::vector<uint8_t> truth_mark_vec(truth_boxes.size());
+    uint truth_mark_sum = 0;
+    // Surjective matching algorithm
+    for (auto idx: idx_vec)
+    {
+        iou = iou_vec[idx];
+        i = idx / default_boxes.size();
+        j = idx % default_boxes.size();
+        // If no truth box has been assigned to this default box
+        if (default_mark_vec[i] == 0)
+        {
+            // If the iou is >= than the required thresh
+            if (iou >= iou_thresh)
+            {
+                ind_mat[i][j] = 1;
+                default_mark_vec[j] = 1;
+                truth_mark_vec[i] = 1;
+                ++truth_mark_sum;
+            }
+            // OR if iou < than required thresh, but no default box has been assigned to this truth box
+            else if (truth_mark_vec[i] == 0)
+            {
+                ind_mat[i][j] = 1;
+                default_mark_vec[j] = 1;
+                truth_mark_vec[i] = 1;
+                ++truth_mark_sum;
+            }
+        }
+        // Finish condition: each truth box has been assigned to a default box
+        if (truth_mark_sum == truth_mark_vec.size())
+            break;
+    }
+    // TODO: Add tests for ind_mat to make sure it meets required conditions
+    // Create vector of class labels
+    std::vector<std::vector<uint8_t>> cls_vec(default_boxes.size());
+    for (i = 0; i < default_boxes.size(); i++)
+        cls_vec[i].resize(num_classes);
+    for (i = 0; i < ind_mat.size(); i++)
+        for (j = 0; j < ind_mat.size(); j++)
+            if (ind_mat[i][j])
+                cls_vec[j][truth_labels[i]] = 1;
+    // Create vector of offset values
+    std::vector<std::vector<float>> off_vec(default_boxes.size());
+    for (i = 0; i < off_vec.size(); i++)
+        off_vec[i].resize(default_boxes[i].size());
+    for (i = 0; i < ind_mat.size(); i++)
+        for (j = 0; j < ind_mat.size(); j++)
+            if (ind_mat[i][j])
+                off_vec[j] = _encode_offset(truth_centers[i], default_centers[j]);
+    // Create result object
+    ssd_truth_t ssd_truth = 
+    {
+        cls_vec,
+        off_vec
+    };
+    return ssd_truth;
+}
+
 void test_convert()
 {
   std::cout << "==> Test 1:" << std::endl;
@@ -268,6 +436,7 @@ void data_reader_voc::load() {
   //El::mpi::Broadcast<std::streampos> doesn't work
   std::vector<long long> index;
   std::vector<std::vector<std::vector<float>>> all_boxes;
+  std::vector<std::vector<uint>> all_labels;
 
   if (master) {
     std::string line;
@@ -305,6 +474,7 @@ void data_reader_voc::load() {
 
     // Store boxes
     std::vector<std::vector<float>> img_boxes;
+    std::vector<uint> img_labels;
     std::vector<float> box;
 
     std::string prev_file_name;
@@ -316,7 +486,7 @@ void data_reader_voc::load() {
         break;
       }
       ++line_num;
-      std::cout << "\n==> Data element " << line_num << ":" << std::endl;
+      //std::cout << "\n==> Data element " << line_num << ":" << std::endl;
       // Verify the line has the right number of columns.
       if (std::count(line.begin(), line.end(), m_separator) + 1 != m_num_cols) {
         throw lbann_exception(
@@ -329,7 +499,7 @@ void data_reader_voc::load() {
         box.clear();
 
         size_t cur_pos = 0;
-        int cls_id, difficult;
+        int cls_id=0, difficult=0;
         float w=0, h=0, xmin, ymin, xmax, ymax;
         float sxmin, symin, sxmax, symax;
         for (int col = 0; col < m_num_cols; ++col) {
@@ -337,49 +507,49 @@ void data_reader_voc::load() {
           switch (col) {
               case file_name_idx:
                 curr_file_name = line.substr(cur_pos, end_pos - cur_pos);
-                std::cout << "file name: " << curr_file_name << std::endl;
+                //std::cout << "file name: " << curr_file_name << std::endl;
                 break;
                 //label_classes.insert(label);
                 //m_labels.push_back(label);
               case cls_id_idx:
                 cls_id = stoi(line.substr(cur_pos, end_pos - cur_pos));
-                std::cout << "class id: " << cls_id << std::endl;
+                //std::cout << "class id: " << cls_id << std::endl;
                 break;
               case difficult_idx:
                 difficult = stoi(line.substr(cur_pos, end_pos - cur_pos));
-                std::cout << "difficult: " << difficult << std::endl;
+                //std::cout << "difficult: " << difficult << std::endl;
                 break;
               case w_idx:
                 w = stof(line.substr(cur_pos, end_pos - cur_pos));
-                std::cout << "width: " << w << std::endl;
+                //std::cout << "width: " << w << std::endl;
                 break;
               case h_idx:  
                 h = stof(line.substr(cur_pos, end_pos - cur_pos));
-                std::cout << "height: " << h << std::endl;
+                //std::cout << "height: " << h << std::endl;
                 break;
               case xmin_idx:
                 xmin = stof(line.substr(cur_pos, end_pos - cur_pos));
                 sxmin = xmin / w;
                 box.push_back(sxmin);
-                std::cout << "sxmin: " << sxmin << std::endl;
+                //std::cout << "sxmin: " << sxmin << std::endl;
                 break;
               case ymin_idx:
                 ymin = stof(line.substr(cur_pos, end_pos - cur_pos));
                 symin = ymin / h;
                 box.push_back(symin);
-                std::cout << "symin: " << symin << std::endl;
+                //std::cout << "symin: " << symin << std::endl;
                 break;
               case xmax_idx:
                 xmax = stof(line.substr(cur_pos, end_pos - cur_pos));
                 sxmax = xmax / w;
                 box.push_back(sxmax);
-                std::cout << "sxmax: " << sxmax << std::endl;
+                //std::cout << "sxmax: " << sxmax << std::endl;
                 break;
               case ymax_idx:
                 ymax = stof(line.substr(cur_pos, end_pos - cur_pos));
                 symax = ymax / h;
                 box.push_back(symax);
-                std::cout << "symax: " << symax << std::endl;
+                //std::cout << "symax: " << symax << std::endl;
                 break;
               default:
                 ;
@@ -397,9 +567,12 @@ void data_reader_voc::load() {
         {
             prev_file_name = curr_file_name;
             all_boxes.push_back(img_boxes);
+            all_labels.push_back(img_labels);
             img_boxes.clear();
+            img_labels.clear();
         }
         img_boxes.push_back(box);
+        img_labels.push_back(cls_id);
       /*
       // Extract the label.
       if (!m_disable_labels) {
@@ -503,9 +676,25 @@ void data_reader_voc::load() {
   //m_shuffled_indices.resize(m_num_samples);
   //std::iota(m_shuffled_indices.begin(), m_shuffled_indices.end(), 0);
   //select_subset_of_data();
+  std::cout << "==> Generating default boxes..." << std::endl;
+  std::vector<std::vector<float>> default_centers = _get_default_boxes(IMAGE_SIZE, NUM_SCALES, FEATURE_MAPS, MIN_SIZES, MAX_SIZES, STEPS, ASPECT_RATIOS, NUM_DEFAULT, NUM_COORD);
+  std::vector<std::vector<float>> default_bounds = _convert_bound(default_centers);
+
+  // Convert ground truth boxes to center format
+  std::vector<std::vector<float>> truth_centers;
+
   std::cout << "==> Matching..." << std::endl;
-  std::vector<std::vector<float>> default_center_boxes = _get_default_boxes(IMAGE_SIZE, NUM_SCALES, FEATURE_MAPS, MIN_SIZES, MAX_SIZES, STEPS, ASPECT_RATIOS, NUM_DEFAULT, NUM_COORD);
-  std::vector<std::vector<float>> default_bound_boxes = _convert_bound(default_center_boxes);
+  ssd_truth_t ssd_truth;
+  std::vector<std::vector<std::vector<uint8_t>>> full_cls_vec(all_boxes.size());
+  std::vector<std::vector<std::vector<float>>> full_off_vec(all_boxes.size());
+  for (uint i = 0; i < all_boxes.size(); i++)
+  {
+      std::cout << i << " / " << all_boxes.size() << std::endl;
+      truth_centers = _convert_center(all_boxes[i]);
+      ssd_truth = _match_image(default_bounds, default_centers, all_boxes[i], truth_centers, all_labels[i], IOU_THRESH, NUM_CLASSES);
+      full_cls_vec[i] = ssd_truth.cls_vec;
+      full_off_vec[i] = ssd_truth.off_vec;
+  }
 }
 
 }  // namespace lbann
