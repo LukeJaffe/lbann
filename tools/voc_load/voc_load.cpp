@@ -3,6 +3,7 @@
 //#define EL_CORE_MEMORY_IMPL_HPP_
 
 #include <iostream>
+#include <iomanip>
 #include <string>
 #include <set>
 #include <vector>
@@ -26,6 +27,9 @@ int main(int argc, char** argv)
 
   using namespace lbann;
   using namespace std;
+
+  std::cout << std::fixed;
+  std::cout << std::setprecision(3);
 
   generic_data_reader *reader = nullptr;
   reader = new data_reader_voc(true);

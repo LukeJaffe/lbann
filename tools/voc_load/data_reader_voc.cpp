@@ -31,6 +31,7 @@
 #include <cstdio>
 #include <string>
 #include <omp.h>
+#include <assert.h>
 
 // SSD 300 standard parameters
 const int NUM_DEFAULT = 8732;
@@ -47,6 +48,8 @@ const std::vector<std::vector<int>> ASPECT_RATIOS = {{2}, {2, 3}, {2, 3}, {2, 3}
 
 // Matching parameters
 const float IOU_THRESH = 0.5;
+
+#define DEBUG 0
 
 #if 1
 // Clamp all values in matrix to [0, 1]
@@ -274,102 +277,147 @@ std::vector<size_t> sort_indices(const std::vector<T> &v)
     std::vector<size_t> idx(v.size());
     iota(idx.begin(), idx.end(), 0);
 
-    // sort indexes based on comparing values in v
+    // sort indexes based on comparing values in v, in descending order
     sort(idx.begin(), idx.end(),
-       [&v](size_t i1, size_t i2) {return v[i1] < v[i2];});
+       [&v](size_t i1, size_t i2) {return v[i1] > v[i2];});
 
     return idx;
 }
 
 typedef struct ssd_truth
 {
-    std::vector<std::vector<uint8_t>> cls_vec;
-    std::vector<std::vector<float>> off_vec;
+    std::vector<std::vector<std::vector<uint8_t>>> full_cls_vec;
+    std::vector<std::vector<std::vector<float>>> full_off_vec;
 } ssd_truth_t;
 
-inline ssd_truth_t _match_image(
+inline ssd_truth_t _match(
         std::vector<std::vector<float>> default_boxes, 
         std::vector<std::vector<float>> default_centers, 
-        std::vector<std::vector<float>> truth_boxes,
-        std::vector<std::vector<float>> truth_centers,
-        std::vector<uint> truth_labels,
+        std::vector<std::vector<std::vector<float>>> all_truth_boxes,
+        std::vector<std::vector<uint>> all_truth_labels,
         float iou_thresh,
         uint num_classes)
 {
     float iou;
-    uint i, j, k = 0;
-    // Declare, initialize variables
-    std::vector<std::vector<size_t>> ind_mat(truth_boxes.size());
-    for (i = 0; i < truth_boxes.size(); i++)
-        ind_mat[i].resize(default_boxes.size());
-    std::vector<float> iou_vec(truth_boxes.size()*default_boxes.size());
-    // Get IOU for each truth/default box pair
-    for (i = 0; i < truth_boxes.size(); i++)
+    uint i, j, k;
+    std::vector<std::vector<std::vector<uint8_t>>> full_cls_vec(all_truth_boxes.size());
+    std::vector<std::vector<std::vector<float>>> full_off_vec(all_truth_boxes.size());
+    for (uint l = 0; l < all_truth_boxes.size(); l++)
     {
+        std::cout << l+1 << " / " << all_truth_boxes.size() << std::endl;
+        // Get stuff
+        std::vector<std::vector<float>> truth_boxes = all_truth_boxes[l];
+        std::vector<uint> truth_labels = all_truth_labels[l];
+        std::vector<std::vector<float>> truth_centers = _convert_center(truth_boxes);
+        // Declare, initialize variables
+        std::vector<std::vector<size_t>> ind_mat(truth_boxes.size());
+        for (i = 0; i < truth_boxes.size(); i++)
+            ind_mat[i].resize(default_boxes.size());
+        std::vector<float> iou_vec(truth_boxes.size()*default_boxes.size());
+        // Get IOU for each truth/default box pair
+        k = 0;
+        for (i = 0; i < truth_boxes.size(); i++)
+        {
+            for (j = 0; j < default_boxes.size(); j++)
+            {
+                iou = _get_iou(truth_boxes[i], default_boxes[j]);
+                iou_vec[k++] = iou;
+            }
+        }
+        // Sort IOU scores
+        std::vector<size_t> idx_vec = sort_indices(iou_vec);
+        // Setup vectors to keep track of matching
+        std::vector<uint8_t> default_mark_vec(default_boxes.size());
+        std::vector<uint8_t> truth_mark_vec(truth_boxes.size());
+        //for (i = 0; i < idx_vec.size(); i++)
+        //    if (iou_vec[idx_vec[i]] > 0)
+        //        std::cout << idx_vec[i] << ", " << iou_vec[idx_vec[i]] << std::endl;
+        // Surjective matching algorithm, similar to NMS
+        for (auto idx: idx_vec)
+        {
+            iou = iou_vec[idx];
+            //std::cout << idx << ", " << iou << std::endl;
+            i = idx / default_boxes.size();
+            j = idx % default_boxes.size();
+            // If no truth box has been assigned to this default box
+            if (default_mark_vec[j] == 0)
+            {
+                // If the iou is >= than the required thresh
+                if (iou >= iou_thresh)
+                {
+                    ind_mat[i][j] = 1;
+                    default_mark_vec[j] = 1;
+                    truth_mark_vec[i] = 1;
+                }
+                // OR if iou < than required thresh, but no default box has been assigned to this truth box
+                else if (truth_mark_vec[i] == 0)
+                {
+                    ind_mat[i][j] = 1;
+                    default_mark_vec[j] = 1;
+                    truth_mark_vec[i] = 1;
+                }
+            }
+            // Finish condition: each truth box has been assigned to a default box, and iou < iou_thresh
+            if (!(std::find(truth_mark_vec.begin(), truth_mark_vec.end(), 0) != truth_mark_vec.end()) && iou < iou_thresh)
+            {
+                //std::cout << idx << std::endl;
+                break;
+            }
+        }
+        // ### Tests for ind_mat to make sure it meets required conditions
+#if DEBUG
+        // Check if more than 1 truth box has been assigned to each default box
+        uint db_truth_counter;
         for (j = 0; j < default_boxes.size(); j++)
         {
-            iou = _get_iou(truth_boxes[i], default_boxes[j]);
-            iou_vec[k++] = iou;
+            db_truth_counter = 0;
+            for (i = 0; i < truth_boxes.size(); i++)
+                if (ind_mat[i][j])
+                    ++db_truth_counter;
+            assert(db_truth_counter <= 1);
         }
-    }
-    // Sort IOU scores
-    std::vector<size_t> idx_vec = sort_indices(iou_vec);
-    // Setup vectors to keep track of matching
-    std::vector<uint8_t> default_mark_vec(default_boxes.size());
-    std::vector<uint8_t> truth_mark_vec(truth_boxes.size());
-    uint truth_mark_sum = 0;
-    // Surjective matching algorithm
-    for (auto idx: idx_vec)
-    {
-        iou = iou_vec[idx];
-        i = idx / default_boxes.size();
-        j = idx % default_boxes.size();
-        // If no truth box has been assigned to this default box
-        if (default_mark_vec[i] == 0)
+        // Check if any truth box has not been assigned a default box
+        uint db_default_counter;
+        for (i = 0; i < truth_boxes.size(); i++)
         {
-            // If the iou is >= than the required thresh
-            if (iou >= iou_thresh)
-            {
-                ind_mat[i][j] = 1;
-                default_mark_vec[j] = 1;
-                truth_mark_vec[i] = 1;
-                ++truth_mark_sum;
-            }
-            // OR if iou < than required thresh, but no default box has been assigned to this truth box
-            else if (truth_mark_vec[i] == 0)
-            {
-                ind_mat[i][j] = 1;
-                default_mark_vec[j] = 1;
-                truth_mark_vec[i] = 1;
-                ++truth_mark_sum;
-            }
+            db_default_counter = 0;
+            for (j = 0; j < default_boxes.size(); j++)
+                if (ind_mat[i][j])
+                    ++db_default_counter;
+            assert(db_default_counter > 0);
         }
-        // Finish condition: each truth box has been assigned to a default box
-        if (truth_mark_sum == truth_mark_vec.size())
-            break;
+#endif
+        // Create vector of class labels
+        std::vector<std::vector<uint8_t>> cls_vec(default_boxes.size());
+        for (i = 0; i < default_boxes.size(); i++)
+        {
+            cls_vec[i].resize(num_classes);
+            cls_vec[i][0] = 1;
+        }
+        for (i = 0; i < ind_mat.size(); i++)
+            for (j = 0; j < ind_mat[i].size(); j++)
+            {
+                if (ind_mat[i][j])
+                {
+                    cls_vec[j][truth_labels[i]] = 1;
+                    cls_vec[j][0] = 0;
+                }
+            }
+        // Create vector of offset values
+        std::vector<std::vector<float>> off_vec(default_boxes.size());
+        for (i = 0; i < off_vec.size(); i++)
+            off_vec[i].resize(default_boxes[i].size());
+        for (i = 0; i < ind_mat.size(); i++)
+            for (j = 0; j < ind_mat.size(); j++)
+                if (ind_mat[i][j])
+                    off_vec[j] = _encode_offset(truth_centers[i], default_centers[j]);
+        // Store truth for this image
+        full_cls_vec[l] = cls_vec;
+        full_off_vec[l] = off_vec;
     }
-    // TODO: Add tests for ind_mat to make sure it meets required conditions
-    // Create vector of class labels
-    std::vector<std::vector<uint8_t>> cls_vec(default_boxes.size());
-    for (i = 0; i < default_boxes.size(); i++)
-        cls_vec[i].resize(num_classes);
-    for (i = 0; i < ind_mat.size(); i++)
-        for (j = 0; j < ind_mat.size(); j++)
-            if (ind_mat[i][j])
-                cls_vec[j][truth_labels[i]] = 1;
-    // Create vector of offset values
-    std::vector<std::vector<float>> off_vec(default_boxes.size());
-    for (i = 0; i < off_vec.size(); i++)
-        off_vec[i].resize(default_boxes[i].size());
-    for (i = 0; i < ind_mat.size(); i++)
-        for (j = 0; j < ind_mat.size(); j++)
-            if (ind_mat[i][j])
-                off_vec[j] = _encode_offset(truth_centers[i], default_centers[j]);
-    // Create result object
-    ssd_truth_t ssd_truth = 
-    {
-        cls_vec,
-        off_vec
+    ssd_truth_t ssd_truth = {
+        full_cls_vec,
+        full_off_vec
     };
     return ssd_truth;
 }
@@ -438,7 +486,8 @@ void data_reader_voc::load() {
   std::vector<long long> index;
   std::vector<std::vector<std::vector<float>>> all_boxes;
   std::vector<std::vector<uint>> all_labels;
-
+  std::vector<std::vector<std::string>> all_files;
+  uint sample_counter = 0;
   if (master) {
     std::string line;
     std::streampos header_start = ifs.tellg();
@@ -476,6 +525,7 @@ void data_reader_voc::load() {
     // Store boxes
     std::vector<std::vector<float>> img_boxes;
     std::vector<uint> img_labels;
+    std::vector<std::string> img_files;
     std::vector<float> box;
 
     std::string prev_file_name;
@@ -569,13 +619,17 @@ void data_reader_voc::load() {
             prev_file_name = curr_file_name;
             all_boxes.push_back(img_boxes);
             all_labels.push_back(img_labels);
+            all_files.push_back(img_files);
             img_boxes.clear();
             img_labels.clear();
+            img_files.clear();
         }
         if (!((KEEP_DIFFICULT == 0) && (difficult == 1)))
         {
             img_boxes.push_back(box);
             img_labels.push_back(cls_id);
+            img_files.push_back(curr_file_name);
+            ++sample_counter;
         }
       /*
       // Extract the label.
@@ -612,6 +666,8 @@ void data_reader_voc::load() {
     }
     // Make sure to get the last set of boxes
     all_boxes.push_back(img_boxes);
+    all_labels.push_back(img_labels);
+    all_files.push_back(img_files);
 
     if (!ifs.eof() && num_samples_to_use == 0) {
        //If we didn't get to EOF, something went wrong.
@@ -644,6 +700,7 @@ void data_reader_voc::load() {
   //m_comm->world_broadcast<long long>(0, index);
   m_num_samples = index.size() - 1;
   if (m_master) std::cerr << "num samples: " << m_num_samples << "\n";
+  std::cout << "Counted samples: " << sample_counter << std::endl;
 
   m_index.reserve(index.size());
   for (auto t : index) {
@@ -688,19 +745,25 @@ void data_reader_voc::load() {
   std::vector<std::vector<float>> truth_centers;
 
   std::cout << "==> Matching..." << std::endl;
-  ssd_truth_t ssd_truth;
-  std::vector<std::vector<std::vector<uint8_t>>> full_cls_vec(all_boxes.size());
-  std::vector<std::vector<std::vector<float>>> full_off_vec(all_boxes.size());
-  for (uint i = 0; i < all_boxes.size(); i++)
-  {
-      std::cout << i << " / " << all_boxes.size() << std::endl;
-      truth_centers = _convert_center(all_boxes[i]);
-      ssd_truth = _match_image(default_bounds, default_centers, all_boxes[i], truth_centers, all_labels[i], IOU_THRESH, NUM_CLASSES);
-      full_cls_vec[i] = ssd_truth.cls_vec;
-      full_off_vec[i] = ssd_truth.off_vec;
-  }
-
+  ssd_truth_t ssd_truth =  _match(default_bounds, default_centers, all_boxes, all_labels, IOU_THRESH, NUM_CLASSES);
+  std::vector<std::vector<std::vector<uint8_t>>> full_cls_vec = ssd_truth.full_cls_vec;
+  std::vector<std::vector<std::vector<float>>> full_off_vec = ssd_truth.full_off_vec;
+#if DEBUG
   std::cout << "==> Testing..." << std::endl;
+  std::ofstream fout("test/lbann.csv");
+  for (uint i = 0; i < full_cls_vec.size(); i++)
+  {
+      for (uint j = 0; j < full_cls_vec[i].size(); j++)
+      {
+          fout << all_files[i][0] << ",";
+          for (uint k = 0; k < full_cls_vec[i][j].size(); k++)
+          {
+              fout << int(full_cls_vec[i][j][k]) << ",";
+          }
+          fout << std::endl;
+      }
+  }
+#endif
 }
 
 }  // namespace lbann
