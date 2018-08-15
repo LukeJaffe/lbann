@@ -448,7 +448,7 @@ enum voc_idx_t {
 };
 
 data_reader_voc::data_reader_voc(bool shuffle)
-  : csv_reader(shuffle) {
+  : generic_data_reader(shuffle) {
   //set_response_col(2);
   enable_responses();
   //set_label_col(3);
@@ -465,8 +465,42 @@ data_reader_voc::data_reader_voc(bool shuffle)
     });
 }
 
-data_reader_voc::data_reader_voc()
-  : data_reader_voc(true) {}
+data_reader_voc::~data_reader_voc() {
+  for (auto&& ifs : m_ifstreams) {
+    delete ifs;
+  }
+}
+
+bool data_reader_voc::fetch_datum(CPUMat& X, int data_id, int mb_idx, int tid) {
+/*
+  if (m_data_store != nullptr) {
+    std::vector<DataType> *buf;
+    m_data_store->get_data_buf_DataType(data_id, buf);
+    for (size_t i = 0; i < buf->size(); ++i) {
+      X(i, mb_idx) = (*buf)[i];
+    }
+  } else*/ 
+      /*
+    {
+    auto line = fetch_line_label_response(data_id);
+    // TODO: Avoid unneeded copies.
+    for (size_t i = 0; i < line.size(); ++i) {
+      X(i, mb_idx) = line[i];
+    }
+  }
+  */
+  return true;
+}
+
+bool data_reader_voc::fetch_label(CPUMat& Y, int data_id, int mb_idx, int tid) {
+  Y(m_labels[data_id], mb_idx) = 1;
+  return true;
+}
+
+bool data_reader_voc::fetch_response(CPUMat& Y, int data_id, int mb_idx, int tid) {
+  Y(0, mb_idx) = m_responses[data_id];
+  return true;
+}
 
 void data_reader_voc::load() {
   bool master = true;//m_comm->am_world_master();
@@ -496,11 +530,11 @@ void data_reader_voc::load() {
       m_num_cols = std::count(line.begin(), line.end(), m_separator) + 1;
     } else {
       throw lbann_exception(
-        "csv_reader: failed to read header in " + get_data_filename());
+        "data_reader_voc: failed to read header in " + get_data_filename());
     }
     if (ifs.eof()) {
       throw lbann_exception(
-        "csv_reader: reached EOF after reading header");
+        "data_reader_voc: reached EOF after reading header");
     }
     // If there was no header, skip back to the beginning.
     if (!m_has_header) {
@@ -541,7 +575,7 @@ void data_reader_voc::load() {
       // Verify the line has the right number of columns.
       if (std::count(line.begin(), line.end(), m_separator) + 1 != m_num_cols) {
         throw lbann_exception(
-          "csv_reader: line " + std::to_string(line_num) +
+          "data_reader_voc: line " + std::to_string(line_num) +
           " does not have right number of entries");
       }
       index.push_back(ifs.tellg());
@@ -672,7 +706,7 @@ void data_reader_voc::load() {
     if (!ifs.eof() && num_samples_to_use == 0) {
        //If we didn't get to EOF, something went wrong.
       throw lbann_exception(
-        "csv_reader: did not reach EOF");
+        "data_reader_voc: did not reach EOF");
     }
     /*
     if (!m_disable_labels) {
@@ -681,11 +715,11 @@ void data_reader_voc::load() {
       auto minmax = std::minmax_element(label_classes.begin(), label_classes.end());
       if (*minmax.first != 0) {
         throw lbann_exception(
-          "csv_reader: classes are not indexed from 0");
+          "data_reader_voc: classes are not indexed from 0");
       }
       if (*minmax.second != (int) label_classes.size() - 1) {
         throw lbann_exception(
-          "csv_reader: label classes are not contiguous");
+          "data_reader_voc: label classes are not contiguous");
       }
       m_num_labels = label_classes.size();
     }
@@ -764,6 +798,27 @@ void data_reader_voc::load() {
       }
   }
 #endif
+}
+
+void data_reader_voc::skip_rows(std::ifstream& s, int rows) {
+  std::string unused;  // Unused buffer for extracting lines.
+  for (int i = 0; i < rows; ++i) {
+    if (!std::getline(s, unused)) {
+      throw lbann_exception("data_reader_voc: error on skipping rows");
+    }
+  }
+}
+
+void data_reader_voc::setup_ifstreams() {
+  m_ifstreams.resize(omp_get_max_threads());
+  for (int i = 0; i < omp_get_max_threads(); ++i) {
+    m_ifstreams[i] = new std::ifstream(
+      get_file_dir() + get_data_filename(), std::ios::in | std::ios::binary);
+    if (m_ifstreams[i]->fail()) {
+      throw lbann_exception(
+        "data_reader_voc: failed to open " + get_file_dir() + get_data_filename());
+    }
+  }
 }
 
 }  // namespace lbann

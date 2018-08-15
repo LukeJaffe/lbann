@@ -53,7 +53,6 @@ include_directories(${MPI_CXX_INCLUDE_PATH})
 
 
 file(GLOB VOC_LOAD_DEPEND_SRCS
-     data_reader_csv.cpp
      data_reader_voc.cpp
      lbann/utils/random.cpp)
 
