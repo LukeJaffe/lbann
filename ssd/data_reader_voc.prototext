@@ -1,0 +1,44 @@
+data_reader {
+  reader {
+    name: "voc"
+    role: "train"
+    shuffle: true
+    #data_filedir: "/p/lscratchf/brainusr/datasets/VOCdevkit/VOC2007/JPEGImages"
+    data_filename: "/g/g13/jaffe5/projects/lbann_ssd/ssd/data/train_full.csv"
+    label_filename: ""
+    validation_percent: 0.0
+    percent_of_data_to_use: 1.0
+    num_labels: 384208
+    disable_labels: false
+    disable_responses: true
+
+    image_preprocessor {
+      resizer {
+        disable: false
+        resized_width: 300
+        resized_height: 300
+      }
+
+      subtractor {
+        disable: false
+        channel_mean: [0.40784314, 0.45882353, 0.48235294]
+      }
+
+      cropper {
+        disable: true
+      }
+
+      colorizer {
+        disable: true
+      }
+
+      augmenter {
+        disable: true
+      }
+
+      normalizer {
+        disable: true
+      }
+    }
+  }
+}
