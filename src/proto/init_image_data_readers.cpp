@@ -316,7 +316,7 @@ void init_image_data_reader(const lbann_data::Reader& pb_readme, const bool mast
   std::shared_ptr<cv_process> pp;
   // set up the image preprocessor
   if ((name == "imagenet") || (name == "jag_conduit") || (name == "jag_conduit_hdf5") ||
-      (name == "triplet") || (name == "mnist_siamese") || (name == "multi_images")) {
+      (name == "triplet") || (name == "mnist_siamese") || (name == "multi_images") || (name == "voc")) {
     pp = std::make_shared<cv_process>();
   } else if (name == "imagenet_patches") {
     pp = std::make_shared<cv_process_patches>();
@@ -341,6 +341,8 @@ void init_image_data_reader(const lbann_data::Reader& pb_readme, const bool mast
     reader = new imagenet_reader_patches(ppp, shuffle);
   } else if (name == "imagenet") {
     reader = new imagenet_reader(pp, shuffle);
+  } else if (name == "voc") {
+    reader = new data_reader_voc(pp, shuffle);
   } else if (name == "triplet") {
     reader = new data_reader_triplet(pp, shuffle);
   } else if (name == "mnist_siamese") {

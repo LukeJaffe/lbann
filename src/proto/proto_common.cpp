@@ -77,7 +77,7 @@ void init_data_readers(lbann::lbann_comm *comm, const lbann_data::LbannPB& p, st
       init_org_image_data_reader(readme, master, reader);
       set_up_generic_preprocessor = false;
     } else if ((name == "imagenet") || (name == "imagenet_patches") ||
-               (name == "triplet") || (name == "mnist_siamese") || (name == "multi_images")) {
+               (name == "triplet") || (name == "mnist_siamese") || (name == "multi_images") || (name == "voc")) {
       init_image_data_reader(readme, master, reader);
       set_up_generic_preprocessor = false;
     } else if (name == "jag") {
@@ -334,6 +334,8 @@ void init_data_readers(lbann::lbann_comm *comm, const lbann_data::LbannPB& p, st
       } else if (name == "nci") {
         reader_validation = new data_reader_nci(shuffle);
         (*(data_reader_nci *)reader_validation) = (*(data_reader_nci *)reader);
+      } else if (name == "voc") {
+        reader_validation = new data_reader_voc(*dynamic_cast<const data_reader_voc*>(reader));
       } else if (name == "csv") {
         reader_validation = new csv_reader(shuffle);
         (*(csv_reader *)reader_validation) = (*(csv_reader *)reader);

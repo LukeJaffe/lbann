@@ -124,6 +124,7 @@
 #include "lbann/data_readers/data_reader_jag_conduit.hpp"
 #include "lbann/data_readers/data_reader_jag_conduit_hdf5.hpp"
 #include "lbann/data_readers/data_reader_nci.hpp"
+#include "lbann/data_readers/data_reader_voc.hpp"
 #include "lbann/data_readers/data_reader_numpy.hpp"
 #include "lbann/data_readers/data_reader_csv.hpp"
 #include "lbann/data_readers/data_reader_merge_samples.hpp"
