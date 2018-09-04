@@ -4,7 +4,7 @@ data_reader {
     role: "train"
     shuffle: true
     #data_filedir: "/p/lscratchf/brainusr/datasets/VOCdevkit/VOC2007/JPEGImages"
-    data_filename: "/g/g13/jaffe5/projects/lbann_ssd/ssd/data/train_full.csv"
+    data_filename: "/g/g13/jaffe5/projects/lbann_ssd/ssd/data/train1.csv"
     label_filename: ""
     validation_percent: 0.0
     percent_of_data_to_use: 1.0
