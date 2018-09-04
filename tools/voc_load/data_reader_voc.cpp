@@ -465,12 +465,6 @@ data_reader_voc::data_reader_voc(bool shuffle)
     });
 }
 
-data_reader_voc::~data_reader_voc() {
-  for (auto&& ifs : m_ifstreams) {
-    delete ifs;
-  }
-}
-
 bool data_reader_voc::fetch_datum(CPUMat& X, int data_id, int mb_idx, int tid) {
 /*
   if (m_data_store != nullptr) {

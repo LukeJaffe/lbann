@@ -49,11 +49,19 @@ class data_reader_voc : public generic_data_reader {
   /**
    * This defaults to using the last column for the label/response.
    */
+     /*
   data_reader_voc(bool shuffle = true);
   //data_reader_voc(const data_reader_voc&);
   //data_reader_voc& operator=(const data_reader_voc&);
   ~data_reader_voc() override;
+  data_reader_voc* copy() const override { return new data_reader_voc(*this); }
+  */
 
+  data_reader_voc(bool shuffle = true);
+  data_reader_voc();
+  data_reader_voc(const data_reader_voc& source) = default;
+  data_reader_voc& operator=(const data_reader_voc& source) = default;
+  ~data_reader_voc() override {}
   data_reader_voc* copy() const override { return new data_reader_voc(*this); }
 
   std::string get_type() const override {
