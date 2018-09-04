@@ -194,6 +194,9 @@ Layer* construct_layer(lbann_comm* comm,
   if (proto_layer.has_hadamard()) {
     return new hadamard_layer<layout, Dev>(comm);
   }
+  if (proto_layer.has_safe_inv()) {
+    return new safe_inv_layer<layout, Dev>(comm);
+  }
   if (proto_layer.has_constant()) {
     const auto& params = proto_layer.constant();
     const auto& dims = parse_list<int>(params.num_neurons());

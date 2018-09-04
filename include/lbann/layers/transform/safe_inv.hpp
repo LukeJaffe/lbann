@@ -50,7 +50,7 @@ class safe_inv_layer : public transform_layer {
     : transform_layer(comm), m_threshhold(threshhold) {}
 
   safe_inv_layer* copy() const override { return new safe_inv_layer(*this); }
-  std::string get_type() const override { return "safe_inv"; }
+  std::string get_type() const override { return "safe inv"; }
   data_layout get_data_layout() const override { return T_layout; }
   El::Device get_device_allocation() const override { return Dev; }
 
