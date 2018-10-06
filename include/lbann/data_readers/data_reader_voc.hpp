@@ -48,7 +48,7 @@ class data_reader_voc : public image_data_reader {
   }
 
   virtual int get_num_responses() const {
-    return 384208;
+    return 576312;
   }
 
   std::string get_image_dir() const {

@@ -298,9 +298,20 @@ inline std::vector<std::vector<std::vector<std::vector<float>>>> _match(
 {
     float iou;
     uint i, j, k;
+    // Class indicator vector
     std::vector<std::vector<std::vector<float>>> full_cls_vec(all_truth_boxes.size());
+    // Location offset vector
     std::vector<std::vector<std::vector<float>>> full_off_vec(all_truth_boxes.size());
-    std::vector<std::vector<std::vector<std::vector<float>>>> out_vec(2);
+    // Default box vector
+    std::vector<std::vector<std::vector<float>>> full_box_vec(all_truth_boxes.size());
+    // Output vector
+    std::vector<std::vector<std::vector<std::vector<float>>>> out_vec(3);
+    // Add extra elements to default center vector to add to full box vector
+    std::vector<std::vector<float>> default_centers_padded(default_centers);
+    for (i = 0; i < default_centers_padded.size(); i++)
+        for (j = 4; j < num_classes+1; j++)
+            default_centers_padded[i].push_back(0.0);
+    // Matching algorithm
     for (uint l = 0; l < all_truth_boxes.size(); l++)
     {
         std::cout << l+1 << " / " << all_truth_boxes.size() << std::endl;
@@ -433,10 +444,12 @@ inline std::vector<std::vector<std::vector<std::vector<float>>>> _match(
         // Store truth for this image
         full_cls_vec[l] = cls_vec;
         full_off_vec[l] = off_vec;
+        full_box_vec[l] = default_centers_padded;
     }
 
     out_vec[0] = full_cls_vec;
     out_vec[1] = full_off_vec;
+    out_vec[2] = full_box_vec;
 
     return out_vec;
 }
@@ -597,7 +610,7 @@ void data_reader_voc::setup_data_store(model *m) {
 }
 
 bool data_reader_voc::fetch_response(CPUMat& Y, int data_id, int mb_idx, int tid) {
-  // m_labels shape: (2, num_images, 8732, 21)
+  // m_labels shape: (3, num_images, 8732, 21)
   uint l = 0;
   for (uint i = 0; i < m_responses.size(); i++)
       for (uint j = 0; j < m_responses[i][data_id].size(); j++)

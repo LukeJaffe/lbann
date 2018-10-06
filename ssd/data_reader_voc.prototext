@@ -8,7 +8,7 @@ data_reader {
     label_filename: ""
     validation_percent: 0.0
     percent_of_data_to_use: 1.0
-    num_labels: 384208
+    num_labels: 576312
     disable_labels: true
     disable_responses: false
 
